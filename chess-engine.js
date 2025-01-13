@@ -332,8 +332,6 @@ class ChessEngine {
             (row === 0 || row === 7);
     }
 
-    // Проверка на мат
-    // [Предыдущий код остается тем же до метода isCheckmate]
 
     // Проверка на мат
     isCheckmate() {
@@ -421,9 +419,15 @@ class ChessEngine {
             capturedPieces: [...this.capturedPieces],
             isCheck: this.isKingInCheck(this.board, this.kingPositions, this.currentPlayer),
             isCheckmate: this.isCheckmate(),
-            isStalemate: this.isStalemate()
+            isStalemate: this.isStalemate(),
+            moveHistory: this.moveHistory.map(move => {
+                const fromCord = `${String.fromCharCode(97 + move.from.col)}${8 - move.from.row}`;
+                const toCord = `${String.fromCharCode(97 + move.to.col)}${8 - move.to.row}`;
+                return `${fromCord}-${toCord}`;
+            })
         };
     }
+
 
     // Превращение пешки
     promotePawn(row, col, newPieceType) {
