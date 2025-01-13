@@ -262,45 +262,45 @@
     };
 
     // Инициализация веб-сокета
-    // Инициализация веб-сокета
     function initWebSocket() {
-    const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsHost = window.location.hostname;
-    const wsPort = window.location.port ? `:${window.location.port}` : '';
-    const wsUrl = `${wsProtocol}//${wsHost}${wsPort}`;
-    
-    console.log('Attempting to connect to:', wsUrl); // Добавляем лог URL
+        const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const wsHost = window.location.hostname;
+        const wsPort = window.location.port ? `:${window.location.port}` : '';
+        const wsUrl = `${wsProtocol}//${wsHost}${wsPort}`;
 
-    socket = new WebSocket(wsUrl);
+        console.log('Attempting to connect to:', wsUrl); // Добавляем лог URL
 
-    socket.onopen = () => {
-        console.log('Successfully connected to WebSocket server');
-        startTimers();
-    };
+        socket = new WebSocket(wsUrl);
 
-    socket.onmessage = (event) => {
-        console.log('Received message:', event.data); // Логируем входящие сообщения
-        const data = JSON.parse(event.data);
-        handleServerMessage(data);
-    };
+        socket.onopen = () => {
+            console.log('Successfully connected to WebSocket server');
+            startTimers();
+        };
 
-    socket.onerror = (error) => {
-        console.error('WebSocket error:', error);
-        console.error('WebSocket readyState:', socket.readyState); // Добавляем состояние сокета
-    };
+        socket.onmessage = (event) => {
+            console.log('Received message:', event.data); // Логируем входящие сообщения
+            const data = JSON.parse(event.data);
+            handleServerMessage(data);
+        };
 
-    socket.onclose = (event) => {
-        console.log('WebSocket closed with code:', event.code); // Добавляем код закрытия
-        console.log('WebSocket closed reason:', event.reason); // Добавляем причину закрытия
-        stopTimers();
-        setTimeout(initWebSocket, 5000);
-    };
-}
+        socket.onerror = (error) => {
+            console.error('WebSocket error:', error);
+            console.error('WebSocket readyState:', socket.readyState); // Добавляем состояние сокета
+        };
+
+        socket.onclose = (event) => {
+            console.log('WebSocket closed with code:', event.code); // Добавляем код закрытия
+            console.log('WebSocket closed reason:', event.reason); // Добавляем причину закрытия
+            stopTimers();
+            setTimeout(initWebSocket, 5000);
+        };
+    }
 
     // Обработка сообщений от сервера
     function handleServerMessage(data) {
         switch(data.type) {
             case 'gameState':
+                console.log('Received game state:', data);  // Add this line to debug
                 gameState = data;
                 updateBoard(data.board);
                 updateStatus(data);
@@ -441,6 +441,12 @@
     function updateMoveHistory(history) {
         const container = document.getElementById('moveHistory');
         container.innerHTML = '';
+
+        // Check if history exists and is an array
+        if (!history || !Array.isArray(history)) {
+            console.warn('Move history is undefined or not an array');
+            return;
+        }
 
         history.forEach((move, index) => {
             const moveDiv = document.createElement('div');
