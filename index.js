@@ -16,7 +16,7 @@ app.get('/', (req, res) => {
 
 // Создаем HTTP сервер
 const server = app.listen(port, () => {
-    console.log(`Server is running on port ${port}`);
+    console.log(`http://localhost:${port}`);
 });
 
 // Создаем WebSocket сервер
@@ -151,9 +151,17 @@ function sendGameState(ws, additional = {}) {
     const game = gameData.engine;
     const state = game.getGameState();
 
+    // Преобразуем историю ходов в читаемый формат
+    const moveHistory = game.moveHistory.map(move => {
+        const fromCoord = `${String.fromCharCode(97 + move.from.col)}${8 - move.from.row}`;
+        const toCoord = `${String.fromCharCode(97 + move.to.col)}${8 - move.to.row}`;
+        return `${fromCoord}-${toCoord}`;
+    });
+
     ws.send(JSON.stringify({
         type: 'gameState',
         ...state,
+        moveHistory: moveHistory, // Добавляем историю ходов
         timers: gameData.timers,
         ...additional
     }));
