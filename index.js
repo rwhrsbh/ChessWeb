@@ -4,7 +4,7 @@ const path = require('path');
 const ChessEngine = require('./chess-engine');
 
 const app = express();
-const port = process.env.PORT || 3000;
+const port = 3000;
 
 // Раздача статических файлов
 app.use(express.static(path.join(__dirname)));
