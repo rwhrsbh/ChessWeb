@@ -264,28 +264,38 @@
     // Инициализация веб-сокета
     // Инициализация веб-сокета
     function initWebSocket() {
-        socket = new WebSocket('ws://localhost:3000');
+    const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const wsHost = window.location.hostname;
+    const wsPort = window.location.port ? `:${window.location.port}` : '';
+    const wsUrl = `${wsProtocol}//${wsHost}${wsPort}`;
+    
+    console.log('Attempting to connect to:', wsUrl); // Добавляем лог URL
 
-        socket.onopen = () => {
-            console.log('Connected to server');
-            startTimers();
-        };
+    socket = new WebSocket(wsUrl);
 
-        socket.onmessage = (event) => {
-            const data = JSON.parse(event.data);
-            handleServerMessage(data);
-        };
+    socket.onopen = () => {
+        console.log('Successfully connected to WebSocket server');
+        startTimers();
+    };
 
-        socket.onerror = (error) => {
-            console.error('WebSocket error:', error);
-        };
+    socket.onmessage = (event) => {
+        console.log('Received message:', event.data); // Логируем входящие сообщения
+        const data = JSON.parse(event.data);
+        handleServerMessage(data);
+    };
 
-        socket.onclose = () => {
-            console.log('Disconnected from server');
-            stopTimers();
-            setTimeout(initWebSocket, 5000);
-        };
-    }
+    socket.onerror = (error) => {
+        console.error('WebSocket error:', error);
+        console.error('WebSocket readyState:', socket.readyState); // Добавляем состояние сокета
+    };
+
+    socket.onclose = (event) => {
+        console.log('WebSocket closed with code:', event.code); // Добавляем код закрытия
+        console.log('WebSocket closed reason:', event.reason); // Добавляем причину закрытия
+        stopTimers();
+        setTimeout(initWebSocket, 5000);
+    };
+}
 
     // Обработка сообщений от сервера
     function handleServerMessage(data) {
