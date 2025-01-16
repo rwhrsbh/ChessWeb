@@ -25,6 +25,10 @@ class ChessEngine {
             white: { row: 7, col: 4 },
             black: { row: 0, col: 4 }
         };
+        this.castlingRights = {
+            white: { kingSide: true, queenSide: true },
+            black: { kingSide: true, queenSide: true }
+        };
     }
 
     // Создание начальной позиции
@@ -69,12 +73,13 @@ class ChessEngine {
     }
 
     // Получение всех возможных ходов для фигуры
-    getPieceMoves(row, col) {
+    getPieceMoves(row, col, skipValidation = false) {
         const piece = this.getPiece(row, col);
         if (!piece) return [];
 
         const moves = [];
 
+        // Get raw moves without validation
         switch (Math.abs(piece)) {
             case Math.abs(PIECES.W_PAWN):
                 this.getPawnMoves(row, col, moves);
@@ -96,8 +101,142 @@ class ChessEngine {
                 break;
         }
 
-        return moves.filter(move => this.isLegalMove(row, col, move.row, move.col));
+        // Skip validation if requested
+        if (skipValidation) {
+            return moves;
+        }
+
+        // Filter moves that would leave or put the king in check
+        return moves.filter(move => {
+            const tempBoard = this.board.map(row => [...row]);
+            const tempKingPositions = {
+                white: {...this.kingPositions.white},
+                black: {...this.kingPositions.black}
+            };
+
+            // Make the move on temporary board
+            tempBoard[move.row][move.col] = tempBoard[row][col];
+            tempBoard[row][col] = PIECES.EMPTY;
+
+            // Update king position if moving king
+            if (Math.abs(piece) === Math.abs(PIECES.W_KING)) {
+                const player = this.isPieceWhite(piece) ? 'white' : 'black';
+                tempKingPositions[player] = { row: move.row, col: move.col };
+            }
+
+            // Use simplified check validation that doesn't recurse
+            return !this.isKingInCheckSimple(tempBoard, tempKingPositions, this.currentPlayer);
+        });
     }
+    isKingInCheckSimple(board, kingPositions, player) {
+        const kingPos = kingPositions[player];
+        const isWhite = player === 'white';
+
+        // Check pawn attacks
+        const pawnDirs = isWhite ? [[-1, -1], [-1, 1]] : [[1, -1], [1, 1]];
+        for (const [dr, dc] of pawnDirs) {
+            const r = kingPos.row + dr;
+            const c = kingPos.col + dc;
+            if (this.isValidPosition(r, c)) {
+                const piece = board[r][c];
+                if (piece !== PIECES.EMPTY &&
+                    this.isPieceWhite(piece) !== isWhite &&
+                    Math.abs(piece) === Math.abs(PIECES.W_PAWN)) {
+                    return true;
+                }
+            }
+        }
+
+        // Check knight attacks
+        const knightDirs = [[-2,-1],[-2,1],[-1,-2],[-1,2],[1,-2],[1,2],[2,-1],[2,1]];
+        for (const [dr, dc] of knightDirs) {
+            const r = kingPos.row + dr;
+            const c = kingPos.col + dc;
+            if (this.isValidPosition(r, c)) {
+                const piece = board[r][c];
+                if (piece !== PIECES.EMPTY &&
+                    this.isPieceWhite(piece) !== isWhite &&
+                    Math.abs(piece) === Math.abs(PIECES.W_KNIGHT)) {
+                    return true;
+                }
+            }
+        }
+
+        // Check sliding pieces (queen, rook, bishop)
+        const dirs = [
+            [-1,-1],[-1,0],[-1,1],
+            [0,-1],[0,1],
+            [1,-1],[1,0],[1,1]
+        ];
+
+        for (const [dr, dc] of dirs) {
+            let r = kingPos.row + dr;
+            let c = kingPos.col + dc;
+            const isDiagonal = Math.abs(dr) === Math.abs(dc);
+
+            while (this.isValidPosition(r, c)) {
+                const piece = board[r][c];
+                if (piece !== PIECES.EMPTY) {
+                    if (this.isPieceWhite(piece) !== isWhite) {
+                        const pieceType = Math.abs(piece);
+                        if (pieceType === Math.abs(PIECES.W_QUEEN) ||
+                            (isDiagonal && pieceType === Math.abs(PIECES.W_BISHOP)) ||
+                            (!isDiagonal && pieceType === Math.abs(PIECES.W_ROOK))) {
+                            return true;
+                        }
+                    }
+                    break;
+                }
+                r += dr;
+                c += dc;
+            }
+        }
+
+        return false;
+    }
+
+// Modify isLegalMove to use skipValidation parameter
+    isLegalMove(fromRow, fromCol, toRow, toCol) {
+        const piece = this.getPiece(fromRow, fromCol);
+
+        // Check if correct player is moving
+        if ((this.currentPlayer === 'white' && !this.isPieceWhite(piece)) ||
+            (this.currentPlayer === 'black' && this.isPieceWhite(piece))) {
+            return false;
+        }
+
+        // Get raw moves without validation
+        const validMoves = this.getPieceMoves(fromRow, fromCol, true);
+
+        // Check if the move is in the list of valid moves
+        const isValidMove = validMoves.some(move =>
+            move.row === toRow && move.col === toCol
+        );
+
+        if (!isValidMove) {
+            return false;
+        }
+
+        // Create temporary board for check validation
+        const tempBoard = this.board.map(row => [...row]);
+        const tempKingPositions = {
+            white: {...this.kingPositions.white},
+            black: {...this.kingPositions.black}
+        };
+
+        // Make the move on temporary board
+        tempBoard[toRow][toCol] = tempBoard[fromRow][fromCol];
+        tempBoard[fromRow][fromCol] = PIECES.EMPTY;
+
+        // Update king position if moving king
+        if (Math.abs(piece) === Math.abs(PIECES.W_KING)) {
+            tempKingPositions[this.currentPlayer] = { row: toRow, col: toCol };
+        }
+
+        // Check if the move would result in check
+        return !this.isKingInCheckSimple(tempBoard, tempKingPositions, this.currentPlayer);
+    }
+
 
     // Получение ходов пешки
     getPawnMoves(row, col, moves) {
@@ -179,12 +318,24 @@ class ChessEngine {
 
     // Получение ходов ферзя
     getQueenMoves(row, col, moves) {
-        this.getBishopMoves(row, col, moves);
-        this.getRookMoves(row, col, moves);
+        // Combine bishop and rook directions directly instead of calling their methods
+        const directions = [
+            { row: -1, col: -1 }, { row: -1, col: 1 },
+            { row: 1, col: -1 }, { row: 1, col: 1 },
+            { row: -1, col: 0 }, { row: 1, col: 0 },
+            { row: 0, col: -1 }, { row: 0, col: 1 }
+        ];
+
+        this.getSlidingMoves(row, col, directions, moves);
     }
 
     // Получение ходов короля
     getKingMoves(row, col, moves) {
+        const piece = this.getPiece(row, col);
+        const isWhite = this.isPieceWhite(piece);
+        const player = isWhite ? 'white' : 'black';
+
+        // Обычные ходы короля
         const directions = [
             { row: -1, col: -1 }, { row: -1, col: 0 }, { row: -1, col: 1 },
             { row: 0, col: -1 }, { row: 0, col: 1 },
@@ -198,18 +349,90 @@ class ChessEngine {
             if (this.isValidPosition(newRow, newCol)) {
                 const targetPiece = this.getPiece(newRow, newCol);
                 if (targetPiece === PIECES.EMPTY ||
-                    this.isPieceWhite(targetPiece) !== this.isPieceWhite(this.getPiece(row, col))) {
+                    this.isPieceWhite(targetPiece) !== isWhite) {
                     moves.push({ row: newRow, col: newCol });
                 }
             }
         }
 
-        // TODO: Добавить рокировку
+        // Проверка возможности рокировки
+        if (this.canCastle(player, 'kingSide')) {
+            moves.push({ row: row, col: col + 2, castling: 'kingSide' });
+        }
+        if (this.canCastle(player, 'queenSide')) {
+            moves.push({ row: row, col: col - 2, castling: 'queenSide' });
+        }
+    }
+    canCastle(player, side) {
+        if (!this.castlingRights[player][side]) {
+            return false;
+        }
+
+        const row = player === 'white' ? 7 : 0;
+        const kingCol = 4;
+
+        // Проверяем, что король и ладья не двигались
+        if (!this.castlingRights[player][side]) {
+            return false;
+        }
+
+        // Проверяем, что король не под шахом
+        if (this.isKingInCheck(this.board, this.kingPositions, player)) {
+            return false;
+        }
+
+        // Проверяем путь для короткой рокировки
+        if (side === 'kingSide') {
+            if (this.getPiece(row, 5) !== PIECES.EMPTY ||
+                this.getPiece(row, 6) !== PIECES.EMPTY ||
+                this.getPiece(row, 7) !== (player === 'white' ? PIECES.W_ROOK : PIECES.B_ROOK)) {
+                return false;
+            }
+            // Проверяем, не проходит ли король через битое поле
+            if (this.isSquareUnderAttack(row, 5, player) ||
+                this.isSquareUnderAttack(row, 6, player)) {
+                return false;
+            }
+        }
+        // Проверяем путь для длинной рокировки
+        else if (side === 'queenSide') {
+            if (this.getPiece(row, 3) !== PIECES.EMPTY ||
+                this.getPiece(row, 2) !== PIECES.EMPTY ||
+                this.getPiece(row, 1) !== PIECES.EMPTY ||
+                this.getPiece(row, 0) !== (player === 'white' ? PIECES.W_ROOK : PIECES.B_ROOK)) {
+                return false;
+            }
+            // Проверяем, не проходит ли король через битое поле
+            if (this.isSquareUnderAttack(row, 3, player) ||
+                this.isSquareUnderAttack(row, 2, player)) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+    isSquareUnderAttack(row, col, player) {
+        const isWhite = player === 'white';
+
+        // Проверяем атаки от всех фигур противника
+        for (let r = 0; r < 8; r++) {
+            for (let c = 0; c < 8; c++) {
+                const piece = this.getPiece(r, c);
+                if (piece !== PIECES.EMPTY && this.isPieceWhite(piece) !== isWhite) {
+                    const moves = this.getPieceMoves(r, c, true); // Используем skipValidation
+                    if (moves.some(move => move.row === row && move.col === col)) {
+                        return true;
+                    }
+                }
+            }
+        }
+        return false;
     }
 
     // Получение ходов для скользящих фигур (слон, ладья, ферзь)
     getSlidingMoves(row, col, directions, moves) {
         const piece = this.getPiece(row, col);
+        if (!piece) return;
 
         for (const dir of directions) {
             let newRow = row + dir.row;
@@ -233,52 +456,175 @@ class ChessEngine {
         }
     }
 
-    // Проверка легальности хода
-    isLegalMove(fromRow, fromCol, toRow, toCol) {
-        const piece = this.getPiece(fromRow, fromCol);
 
-        // Проверяем, что ход делает текущий игрок
-        if ((this.currentPlayer === 'white' && !this.isPieceWhite(piece)) ||
-            (this.currentPlayer === 'black' && this.isPieceWhite(piece))) {
-            return false;
+
+    // Новый метод для проверки шаха после хода
+    isKingInCheckAfterMove(board, kingPositions, player) {
+        const kingPos = kingPositions[player];
+        const isWhite = player === 'white';
+
+        // Проверяем атаки от пешек
+        const pawnDirections = isWhite ? [[-1, -1], [-1, 1]] : [[1, -1], [1, 1]];
+        for (const [dRow, dCol] of pawnDirections) {
+            const newRow = kingPos.row + dRow;
+            const newCol = kingPos.col + dCol;
+            if (this.isValidPosition(newRow, newCol)) {
+                const piece = board[newRow][newCol];
+                if (piece !== PIECES.EMPTY &&
+                    this.isPieceWhite(piece) !== isWhite &&
+                    Math.abs(piece) === Math.abs(PIECES.W_PAWN)) {
+                    return true;
+                }
+            }
         }
 
-        // Создаём временную копию доски для проверки шаха
-        const tempBoard = this.board.map(row => [...row]);
-        const tempKingPositions = { ...this.kingPositions };
-
-        // Делаем ход на временной доске
-        tempBoard[toRow][toCol] = tempBoard[fromRow][fromCol];
-        tempBoard[fromRow][fromCol] = PIECES.EMPTY;
-
-        // Обновляем позицию короля, если ходим им
-        if (Math.abs(piece) === Math.abs(PIECES.W_KING)) {
-            tempKingPositions[this.currentPlayer] = { row: toRow, col: toCol };
+        // Проверяем атаки от коней
+        const knightMoves = [
+            [-2, -1], [-2, 1], [-1, -2], [-1, 2],
+            [1, -2], [1, 2], [2, -1], [2, 1]
+        ];
+        for (const [dRow, dCol] of knightMoves) {
+            const newRow = kingPos.row + dRow;
+            const newCol = kingPos.col + dCol;
+            if (this.isValidPosition(newRow, newCol)) {
+                const piece = board[newRow][newCol];
+                if (piece !== PIECES.EMPTY &&
+                    this.isPieceWhite(piece) !== isWhite &&
+                    Math.abs(piece) === Math.abs(PIECES.W_KNIGHT)) {
+                    return true;
+                }
+            }
         }
 
-        // Проверяем, не находится ли король под шахом после хода
-        return !this.isKingInCheck(tempBoard, tempKingPositions, this.currentPlayer);
+        // Проверяем атаки по диагоналям (слоны и ферзь)
+        const diagonalDirections = [[-1, -1], [-1, 1], [1, -1], [1, 1]];
+        for (const [dRow, dCol] of diagonalDirections) {
+            let newRow = kingPos.row + dRow;
+            let newCol = kingPos.col + dCol;
+            while (this.isValidPosition(newRow, newCol)) {
+                const piece = board[newRow][newCol];
+                if (piece !== PIECES.EMPTY) {
+                    if (this.isPieceWhite(piece) !== isWhite &&
+                        (Math.abs(piece) === Math.abs(PIECES.W_BISHOP) ||
+                            Math.abs(piece) === Math.abs(PIECES.W_QUEEN))) {
+                        return true;
+                    }
+                    break;
+                }
+                newRow += dRow;
+                newCol += dCol;
+            }
+        }
+
+        // Проверяем атаки по горизонтали и вертикали (ладьи и ферзь)
+        const straightDirections = [[-1, 0], [1, 0], [0, -1], [0, 1]];
+        for (const [dRow, dCol] of straightDirections) {
+            let newRow = kingPos.row + dRow;
+            let newCol = kingPos.col + dCol;
+            while (this.isValidPosition(newRow, newCol)) {
+                const piece = board[newRow][newCol];
+                if (piece !== PIECES.EMPTY) {
+                    if (this.isPieceWhite(piece) !== isWhite &&
+                        (Math.abs(piece) === Math.abs(PIECES.W_ROOK) ||
+                            Math.abs(piece) === Math.abs(PIECES.W_QUEEN))) {
+                        return true;
+                    }
+                    break;
+                }
+                newRow += dRow;
+                newCol += dCol;
+            }
+        }
+
+        // Проверяем атаки от вражеского короля
+        const kingMoves = [
+            [-1, -1], [-1, 0], [-1, 1],
+            [0, -1], [0, 1],
+            [1, -1], [1, 0], [1, 1]
+        ];
+        for (const [dRow, dCol] of kingMoves) {
+            const newRow = kingPos.row + dRow;
+            const newCol = kingPos.col + dCol;
+            if (this.isValidPosition(newRow, newCol)) {
+                const piece = board[newRow][newCol];
+                if (piece !== PIECES.EMPTY &&
+                    this.isPieceWhite(piece) !== isWhite &&
+                    Math.abs(piece) === Math.abs(PIECES.W_KING)) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
     }
+
+
 
     // Проверка шаха
     isKingInCheck(board, kingPositions, player) {
         const kingPos = kingPositions[player];
         const isWhite = player === 'white';
 
-        // Проверяем все фигуры противника
-        for (let row = 0; row < 8; row++) {
-            for (let col = 0; col < 8; col++) {
-                const piece = board[row][col];
-                if (piece !== PIECES.EMPTY && this.isPieceWhite(piece) !== isWhite) {
-                    // Получаем все возможные ходы фигуры
-                    const moves = this.getPieceMoves(row, col);
-                    // Проверяем, может ли фигура достичь позиции короля
-                    if (moves.some(move => move.row === kingPos.row && move.col === kingPos.col)) {
-                        return true;
-                    }
+        // Check pawn attacks
+        const pawnDirs = isWhite ? [[-1, -1], [-1, 1]] : [[1, -1], [1, 1]];
+        for (const [dr, dc] of pawnDirs) {
+            const r = kingPos.row + dr;
+            const c = kingPos.col + dc;
+            if (this.isValidPosition(r, c)) {
+                const piece = board[r][c];
+                if (piece !== PIECES.EMPTY &&
+                    this.isPieceWhite(piece) !== isWhite &&
+                    Math.abs(piece) === Math.abs(PIECES.W_PAWN)) {
+                    return true;
                 }
             }
         }
+
+        // Check knight attacks
+        const knightDirs = [[-2,-1],[-2,1],[-1,-2],[-1,2],[1,-2],[1,2],[2,-1],[2,1]];
+        for (const [dr, dc] of knightDirs) {
+            const r = kingPos.row + dr;
+            const c = kingPos.col + dc;
+            if (this.isValidPosition(r, c)) {
+                const piece = board[r][c];
+                if (piece !== PIECES.EMPTY &&
+                    this.isPieceWhite(piece) !== isWhite &&
+                    Math.abs(piece) === Math.abs(PIECES.W_KNIGHT)) {
+                    return true;
+                }
+            }
+        }
+
+        // Check sliding pieces (queen, rook, bishop)
+        const dirs = [
+            [-1,-1],[-1,0],[-1,1],
+            [0,-1],[0,1],
+            [1,-1],[1,0],[1,1]
+        ];
+
+        for (const [dr, dc] of dirs) {
+            let r = kingPos.row + dr;
+            let c = kingPos.col + dc;
+            const isDiagonal = Math.abs(dr) === Math.abs(dc);
+
+            while (this.isValidPosition(r, c)) {
+                const piece = board[r][c];
+                if (piece !== PIECES.EMPTY) {
+                    if (this.isPieceWhite(piece) !== isWhite) {
+                        const pieceType = Math.abs(piece);
+                        if (pieceType === Math.abs(PIECES.W_QUEEN) ||
+                            (isDiagonal && pieceType === Math.abs(PIECES.W_BISHOP)) ||
+                            (!isDiagonal && pieceType === Math.abs(PIECES.W_ROOK))) {
+                            return true;
+                        }
+                    }
+                    break;
+                }
+                r += dr;
+                c += dc;
+            }
+        }
+
         return false;
     }
 
@@ -291,38 +637,68 @@ class ChessEngine {
             return false;
         }
 
+        // Проверяем, является ли ход рокировкой
+        const isCastling = Math.abs(piece) === Math.abs(PIECES.W_KING) && Math.abs(fromCol - toCol) === 2;
+
         // Сохраняем ход в истории
         this.moveHistory.push({
             from: { row: fromRow, col: fromCol },
             to: { row: toRow, col: toCol },
             piece: piece,
-            captured: targetPiece
+            captured: targetPiece,
+            isCastling: isCastling
         });
-
-        // Если было взятие, добавляем фигуру в список взятых
-        if (targetPiece !== PIECES.EMPTY) {
-            this.capturedPieces.push(targetPiece);
-        }
-
-        // Обновляем позицию короля, если ходим им
-        if (Math.abs(piece) === Math.abs(PIECES.W_KING)) {
-            this.kingPositions[this.currentPlayer] = { row: toRow, col: toCol };
-        }
 
         // Выполняем ход
         this.board[toRow][toCol] = piece;
         this.board[fromRow][fromCol] = PIECES.EMPTY;
 
-        // Проверяем на превращение пешки
-        if (this.isPawnPromotion(toRow, toCol)) {
-            // По умолчанию превращаем в ферзя
-            this.board[toRow][toCol] = this.currentPlayer === 'white' ? PIECES.W_QUEEN : PIECES.B_QUEEN;
+        // Обрабатываем рокировку
+        if (isCastling) {
+            const row = fromRow;
+            const isKingSide = toCol > fromCol;
+
+            if (isKingSide) {
+                // Перемещаем ладью при короткой рокировке
+                this.board[row][5] = this.board[row][7];
+                this.board[row][7] = PIECES.EMPTY;
+            } else {
+                // Перемещаем ладью при длинной рокировке
+                this.board[row][3] = this.board[row][0];
+                this.board[row][0] = PIECES.EMPTY;
+            }
         }
 
-        // Меняем текущего игрока
+        // Обновляем права на рокировку
+        this.updateCastlingRights(fromRow, fromCol, piece);
+
+        // Обновляем позицию короля
+        if (Math.abs(piece) === Math.abs(PIECES.W_KING)) {
+            this.kingPositions[this.currentPlayer] = { row: toRow, col: toCol };
+        }
+
+        // Меняем игрока
         this.currentPlayer = this.currentPlayer === 'white' ? 'black' : 'white';
 
         return true;
+    }
+    updateCastlingRights(row, col, piece) {
+        const isWhite = this.isPieceWhite(piece);
+        const player = isWhite ? 'white' : 'black';
+
+        // Если двигается король, отменяем все права на рокировку для этого цвета
+        if (Math.abs(piece) === Math.abs(PIECES.W_KING)) {
+            this.castlingRights[player].kingSide = false;
+            this.castlingRights[player].queenSide = false;
+        }
+        // Если двигается ладья, отменяем право на рокировку с соответствующей стороны
+        else if (Math.abs(piece) === Math.abs(PIECES.W_ROOK)) {
+            if (col === 0) { // Ладья на queenside
+                this.castlingRights[player].queenSide = false;
+            } else if (col === 7) { // Ладья на kingside
+                this.castlingRights[player].kingSide = false;
+            }
+        }
     }
 
     // Проверка на превращение пешки
@@ -335,19 +711,19 @@ class ChessEngine {
 
     // Проверка на мат
     isCheckmate() {
-        // Если король не под шахом, это не мат
+        // If king is not in check, it's not checkmate
         if (!this.isKingInCheck(this.board, this.kingPositions, this.currentPlayer)) {
             return false;
         }
 
-        // Проверяем все возможные ходы текущего игрока
+        // Check all possible moves for current player
         for (let row = 0; row < 8; row++) {
             for (let col = 0; col < 8; col++) {
                 const piece = this.getPiece(row, col);
                 if (piece !== PIECES.EMPTY &&
                     this.isPieceWhite(piece) === (this.currentPlayer === 'white')) {
-                    const moves = this.getPieceMoves(row, col);
-                    // Если есть хоть один возможный ход, это не мат
+                    // Get moves with validation
+                    const moves = this.getPieceMoves(row, col, false);
                     if (moves.length > 0) {
                         return false;
                     }
@@ -359,19 +735,19 @@ class ChessEngine {
 
     // Проверка на пат
     isStalemate() {
-        // Если король под шахом, это не пат
+        // If king is in check, it's not stalemate
         if (this.isKingInCheck(this.board, this.kingPositions, this.currentPlayer)) {
             return false;
         }
 
-        // Проверяем все возможные ходы текущего игрока
+        // Check if current player has any legal moves
         for (let row = 0; row < 8; row++) {
             for (let col = 0; col < 8; col++) {
                 const piece = this.getPiece(row, col);
                 if (piece !== PIECES.EMPTY &&
                     this.isPieceWhite(piece) === (this.currentPlayer === 'white')) {
-                    const moves = this.getPieceMoves(row, col);
-                    // Если есть хоть один возможный ход, это не пат
+                    // Get moves with validation
+                    const moves = this.getPieceMoves(row, col, false);
                     if (moves.length > 0) {
                         return false;
                     }
