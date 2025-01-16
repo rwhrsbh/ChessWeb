@@ -24,6 +24,48 @@ const wss = new WebSocketServer({ server });
 
 // Хранилище игр
 const games = new Map();
+function startGameTimer(gameId) {
+    const gameData = games.get(gameId);
+    if (!gameData.timerInterval) {
+        gameData.timerInterval = setInterval(() => {
+            const currentPlayer = gameData.engine.currentPlayer;
+            if (gameData.timers[currentPlayer] > 0) {
+                gameData.timers[currentPlayer]--;
+
+                // Отправляем обновление таймера всем подключенным клиентам
+                wss.clients.forEach(client => {
+                    if (client.gameId === gameId) {
+                        client.send(JSON.stringify({
+                            type: 'timerUpdate',
+                            timers: gameData.timers
+                        }));
+                    }
+                });
+
+                // Проверка на истечение времени
+                if (gameData.timers[currentPlayer] <= 0) {
+                    handleTimeOut(gameId, currentPlayer);
+                }
+            }
+        }, 1000);
+    }
+}
+function handleTimeOut(gameId, player) {
+    const gameData = games.get(gameId);
+    clearInterval(gameData.timerInterval);
+    gameData.timerInterval = null;
+
+    // Уведомляем клиентов о завершении игры по времени
+    wss.clients.forEach(client => {
+        if (client.gameId === gameId) {
+            client.send(JSON.stringify({
+                type: 'gameOver',
+                reason: 'timeOut',
+                loser: player
+            }));
+        }
+    });
+}
 
 wss.on('connection', (ws) => {
     console.log('New client connected');
@@ -40,6 +82,7 @@ wss.on('connection', (ws) => {
         }
     });
     ws.gameId = gameId;
+    startGameTimer(gameId);
 
     // Отправляем начальное состояние
     sendGameState(ws);
@@ -62,6 +105,11 @@ wss.on('connection', (ws) => {
     });
 
     ws.on('close', () => {
+
+        const gameData = games.get(ws.gameId);
+        if (gameData && gameData.timerInterval) {
+            clearInterval(gameData.timerInterval);
+        }
         console.log('Client disconnected');
         games.delete(ws.gameId);
     });
